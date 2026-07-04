@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# AXION local/generated artifacts
+data/
+runs/
+relics/
