@@ -1,0 +1,19 @@
+[Unit]
+Description=Axion 1.275B 32K FineWeb-Edu 20B pretrain
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/MyLabs-LLC/Axion
+EnvironmentFile=-%h/.config/axion/axion.env
+Environment=AXION_MASTER_PORT=29630
+Environment=AXION_NCCL_DEBUG=WARN
+ExecStart=%h/.local/bin/uv run scripts/run_week_training.py --config configs/axion_1b.yaml --run-name macho-1b-finewebedu-20b --run-kind macho-1b-32k --milestone 1b_pretrain --dataset-label FineWeb-Edu-sample-100BT --token-target 20000000000 --checkpoint-every 2000 --keep-checkpoints 2 --eval-every 1000 --val-batches 4 --monitor-seconds 60 --prepare-data --sync-data --resume-training
+Restart=on-failure
+RestartSec=60
+TimeoutStopSec=120
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

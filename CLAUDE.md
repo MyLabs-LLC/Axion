@@ -40,10 +40,10 @@ boring, greppable names (`model.py`, `data.py`, `schedule.py`). Flavor never bea
 ## STATUS  <!-- Claude Code: keep this block updated after every work session -->
 
 ```
-Current milestone : M1 "Subhalo-0" smoke scaffold (FineWeb-Edu local smoke passed)
+Current milestone : 1.275B/32K corpus preparation active (macho-1b-finewebedu-20b)
 Naming            : v2 — dark-sector theme locked (AXION)
-Next action       : build the full 102M-token FineWeb-Edu CMB, rsync it to all machos, then run scripts/launch_m1.sh on Subhalo-0
-Blockers          : full M1 still needs three-host CUDA run, direct-detection parity gate, and full 100M-token acceptance run
+Next action       : validate and sync the 20.02B-token corpus, then automatically launch the 305,176-step pretrain
+Blockers          : no active 1B blocker; original M1 parity and 100M-token acceptance remain validation debt
 ```
 
 ## How Claude Code should work in this repo

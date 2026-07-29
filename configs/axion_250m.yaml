@@ -1,0 +1,32 @@
+model:
+  vocab_size: 16384
+  d_model: 1024
+  n_layers: 16
+  n_heads: 16
+  d_ff: 4096
+  seq_len: 1024
+  rope_theta: 10000
+  tie_embeddings: false
+train:
+  micro_batch: 2
+  n_microbatches: 4
+  optimizer: adamw
+  betas: [0.9, 0.95]
+  lr: 3.0e-4
+  min_lr: 3.0e-5
+  warmup_steps: 2000
+  lr_schedule: cosine
+  weight_decay: 0.1
+  grad_clip: 1.0
+  precision: bf16
+  total_tokens: 5_000_000_000
+  seed: 1337
+  smoke_steps: 1
+data:
+  path: data/fineweb_edu_5B_axion16k.bin
+  expected_tokens: 5_010_000_000
+  train_tokens: 5_000_000_000
+  val_tokens: 10_000_000
+  meta_path: data/meta_250m_5b_axion16k.json
+  tokenizer_path: data/tokenizer/axion16k.model
+  synthetic_tokens: 2_000_000

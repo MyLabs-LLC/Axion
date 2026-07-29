@@ -5,6 +5,7 @@ import math
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.checkpoint import checkpoint
 
 from axion.config import ModelConfig
 
@@ -92,6 +93,17 @@ class TransformerBlock(nn.Module):
         return x
 
 
+def run_transformer_block(
+    layer: TransformerBlock,
+    x: torch.Tensor,
+    *,
+    checkpoint_activations: bool,
+) -> torch.Tensor:
+    if checkpoint_activations and torch.is_grad_enabled():
+        return checkpoint(layer, x, use_reentrant=False)
+    return layer(x)
+
+
 class AxionModel(nn.Module):
     def __init__(self, cfg: ModelConfig) -> None:
         super().__init__()
@@ -107,7 +119,11 @@ class AxionModel(nn.Module):
     def forward(self, idx: torch.Tensor, labels: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor | None]:
         x = self.embed(idx)
         for layer in self.layers:
-            x = layer(x)
+            x = run_transformer_block(
+                layer,
+                x,
+                checkpoint_activations=self.cfg.activation_checkpointing and self.training,
+            )
         logits = self.lm_head(self.norm(x))
         loss = None
         if labels is not None:

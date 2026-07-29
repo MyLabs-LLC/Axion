@@ -8,6 +8,7 @@ import torch
 
 from axion.config import load_config
 from axion.model import AxionModel
+from axion.stages import layer_range
 
 
 def _load_stage(relic_dir: Path, stage: int, kind: str) -> dict[str, torch.Tensor]:
@@ -27,14 +28,15 @@ def _copy_stage_layers(
     merged: dict[str, torch.Tensor],
     stage_state: dict[str, torch.Tensor],
     *,
+    cfg_layers: int,
     stage_rank: int,
 ) -> None:
-    layer_offset = stage_rank * 2
+    stage_layers = tuple(layer_range(cfg_layers, stage_rank, 3))
     for key, value in stage_state.items():
         target = key
         if key.startswith("layers."):
             _, local_layer, rest = key.split(".", 2)
-            target = f"layers.{layer_offset + int(local_layer)}.{rest}"
+            target = f"layers.{stage_layers[int(local_layer)]}.{rest}"
         if key.startswith(("embed.", "norm.", "lm_head.")) or key.startswith("layers."):
             merged[target] = value.detach().cpu()
 
@@ -52,7 +54,7 @@ def main() -> None:
     model = AxionModel(cfg.model)
     merged = model.state_dict()
     for stage in range(3):
-        _copy_stage_layers(merged, _load_stage(relic_dir, stage, args.kind), stage_rank=stage)
+        _copy_stage_layers(merged, _load_stage(relic_dir, stage, args.kind), cfg_layers=cfg.model.n_layers, stage_rank=stage)
     missing, unexpected = model.load_state_dict(merged, strict=True)
     if missing or unexpected:
         raise RuntimeError(f"bad merged state: missing={missing}, unexpected={unexpected}")

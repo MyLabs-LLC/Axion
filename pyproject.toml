@@ -11,10 +11,15 @@ dependencies = [
   "sentencepiece",
   "datasets",
   "torch>=2.5",
+  "mlflow>=3.14.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+export = [
+  "safetensors>=0.4",
+  "transformers>=4.57,<6",
+]
 
 [build-system]
 requires = ["hatchling"]

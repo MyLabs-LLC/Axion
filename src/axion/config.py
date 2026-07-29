@@ -17,6 +17,7 @@ class ModelConfig:
     seq_len: int
     rope_theta: float = 10000.0
     tie_embeddings: bool = False
+    activation_checkpointing: bool = False
 
 
 @dataclass(frozen=True)
@@ -40,8 +41,14 @@ class TrainConfig:
 @dataclass(frozen=True)
 class DataConfig:
     path: str = "data/fineweb_edu_100M.bin"
+    dataset_prefix: str = "sample/10BT/"
     synthetic_tokens: int = 2_000_000
     allow_synthetic: bool = False
+    expected_tokens: int | None = None
+    train_tokens: int | None = None
+    val_tokens: int = 0
+    meta_path: str | None = None
+    tokenizer_path: str | None = None
 
 
 @dataclass(frozen=True)

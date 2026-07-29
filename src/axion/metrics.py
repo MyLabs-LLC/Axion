@@ -7,10 +7,27 @@ from pathlib import Path
 from typing import Any
 
 
-def new_run_dir(root: str = "runs") -> Path:
-    run_dir = Path(root) / time.strftime("%Y%m%d-%H%M%S")
+def new_run_dir(root: str = "runs", name: str | None = None) -> Path:
+    run_dir = Path(root) / (name or time.strftime("%Y%m%d-%H%M%S"))
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
+
+
+def truncate_metrics_after_step(run_dir: Path, optimizer_step: int) -> None:
+    path = run_dir / "metrics.jsonl"
+    if not path.exists():
+        return
+    retained: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        row_step = int(row.get("optimizer_step", int(row.get("step", -1)) + 1))
+        if row_step <= optimizer_step:
+            retained.append(line)
+    temporary = path.with_suffix(".jsonl.tmp")
+    temporary.write_text("\n".join(retained) + ("\n" if retained else ""), encoding="utf-8")
+    temporary.replace(path)
 
 
 class JsonlLogger:
