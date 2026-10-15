@@ -35,19 +35,18 @@ tags:
 - vllm
 ---
 
-# Axion 1B FineWeb-Edu — Step 36K
+# Axion 1B FineWeb-Edu — Step {step_label}
 
 This is an early base-model checkpoint from the Axion three-stage pipeline. It
-has **1,275,168,768 parameters** and was pretrained on FineWeb-Edu with the
+has **{parameter_count:,} parameters** and was pretrained on FineWeb-Edu with the
 Axion 16K SentencePiece tokenizer.
 
 ## Checkpoint
 
-- Optimizer step: **36,000**
-- Training tokens seen: **2,359,296,000**
-- Validation cross-entropy: **2.786487**
-- Validation perplexity: **16.22393**
-- Context length: **32,768 tokens**
+- Optimizer step: **{step:,}**
+- Training tokens seen: **{training_tokens_seen:,}**
+{validation_summary}
+- Context length: **{context_length:,} tokens**
 - Weight format: **BF16 SafeTensors**
 
 This checkpoint is not instruction-tuned or chat-tuned. It may generate
@@ -80,10 +79,10 @@ print(tokenizer.decode(output[0], skip_special_tokens=True))
 Axion uses vLLM's Transformers modeling backend:
 
 ```bash
-vllm serve YOUR_NAMESPACE/YOUR_REPOSITORY \
-  --trust-remote-code \
-  --model-impl transformers \
-  --dtype bfloat16 \
+vllm serve YOUR_NAMESPACE/YOUR_REPOSITORY \\
+  --trust-remote-code \\
+  --model-impl transformers \\
+  --dtype bfloat16 \\
   --max-model-len 32768
 ```
 
@@ -112,6 +111,30 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def read_validation_metrics(
+    metrics_path: Path,
+    step: int,
+) -> tuple[float, float] | None:
+    if not metrics_path.exists():
+        return None
+    match = None
+    with metrics_path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as error:
+                raise ValueError(
+                    f"invalid JSON in {metrics_path}:{line_number}"
+                ) from error
+            if (
+                record.get("optimizer_step") == step
+                and record.get("val_loss") is not None
+                and record.get("val_ppl") is not None
+            ):
+                match = (float(record["val_loss"]), float(record["val_ppl"]))
+    return match
+
+
 def checkpoint_name(stage: int, step: int) -> str:
     return f"stage{stage}-step{step:08d}.pt"
 
@@ -129,14 +152,13 @@ def collect_checkpoint(
     source_dir.mkdir(parents=True, exist_ok=True)
     for stage, host in enumerate(hosts):
         destination = source_dir / checkpoint_name(stage, step)
-        if destination.exists():
-            continue
         remote = root / "relics" / run_name / destination.name
         subprocess.run(
             [
                 "rsync",
                 "-a",
                 "--partial",
+                "--append-verify",
                 f"{host}:{remote}",
                 str(destination),
             ],
@@ -325,6 +347,7 @@ def build_export(
     tokenizer_path: Path,
     step: int,
     dtype_name: str,
+    validation_metrics: tuple[float, float] | None = None,
 ) -> None:
     try:
         from safetensors.torch import save_file
@@ -408,7 +431,29 @@ def build_export(
             temporary,
             config.model.seq_len,
         )
-        card = MODEL_CARD.format(export_dir=output_dir)
+        training_tokens_seen = (
+            step
+            * config.train.micro_batch
+            * config.train.n_microbatches
+            * config.model.seq_len
+        )
+        if validation_metrics is None:
+            validation_summary = "- Validation metrics: **not recorded in this export**"
+        else:
+            validation_loss, validation_ppl = validation_metrics
+            validation_summary = (
+                f"- Validation cross-entropy: **{validation_loss:.6f}**\n"
+                f"- Validation perplexity: **{validation_ppl:.5f}**"
+            )
+        card = MODEL_CARD.format(
+            export_dir=output_dir,
+            step=step,
+            step_label=f"{step // 1000}K" if step % 1000 == 0 else f"{step:,}",
+            parameter_count=total_parameters,
+            training_tokens_seen=training_tokens_seen,
+            validation_summary=validation_summary,
+            context_length=config.model.seq_len,
+        )
         (temporary / "README.md").write_text(card, encoding="utf-8")
         manifest = {
             "architecture": "AxionForCausalLM",
@@ -418,10 +463,11 @@ def build_export(
             "source_checkpoint_sha256": source_hashes,
             "safetensors_sha256": output_hashes,
             "tokenizer": tokenizer,
-            "training_tokens_seen": step * config.train.micro_batch
-            * config.train.n_microbatches
-            * config.model.seq_len,
+            "training_tokens_seen": training_tokens_seen,
         }
+        if validation_metrics is not None:
+            manifest["validation_loss"] = validation_metrics[0]
+            manifest["validation_perplexity"] = validation_metrics[1]
         write_json(temporary / "axion_export_manifest.json", manifest)
         temporary.replace(output_dir)
     except BaseException:
@@ -442,6 +488,11 @@ def main() -> None:
     parser.add_argument("--source-dir", default=None)
     parser.add_argument("--out", default=None)
     parser.add_argument(
+        "--metrics",
+        default=None,
+        help="JSONL metrics path; defaults to runs/<run-name>/metrics.jsonl",
+    )
+    parser.add_argument(
         "--dtype",
         choices=("bfloat16", "float32"),
         default="bfloat16",
@@ -461,6 +512,9 @@ def main() -> None:
     output_dir = Path(
         args.out or f"hf_export/{args.run_name}-step{args.step}"
     )
+    metrics_path = Path(
+        args.metrics or root / "runs" / args.run_name / "metrics.jsonl"
+    )
     collect_checkpoint(
         source_dir=source_dir,
         run_name=args.run_name,
@@ -475,6 +529,7 @@ def main() -> None:
         tokenizer_path=Path(args.tokenizer),
         step=args.step,
         dtype_name=args.dtype,
+        validation_metrics=read_validation_metrics(metrics_path, args.step),
     )
     print(output_dir)
 

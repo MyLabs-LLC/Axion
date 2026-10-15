@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -18,7 +19,24 @@ assert _SPEC is not None and _SPEC.loader is not None
 _EXPORT = module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_EXPORT)
 expected_weight_names = _EXPORT.expected_weight_names
+read_validation_metrics = _EXPORT.read_validation_metrics
 target_name = _EXPORT.target_name
+
+
+def test_export_reads_validation_metrics_for_requested_step(tmp_path: Path) -> None:
+    metrics = tmp_path / "metrics.jsonl"
+    records = [
+        {"optimizer_step": 71_000, "val_loss": 2.7, "val_ppl": 14.8},
+        {"optimizer_step": 72_000, "loss": 2.6},
+        {"optimizer_step": 72_000, "val_loss": 2.67, "val_ppl": 14.5},
+    ]
+    metrics.write_text(
+        "".join(json.dumps(record) + "\n" for record in records),
+        encoding="utf-8",
+    )
+
+    assert read_validation_metrics(metrics, 72_000) == (2.67, 14.5)
+    assert read_validation_metrics(metrics, 73_000) is None
 
 
 def test_export_maps_all_stage_layers_once() -> None:
@@ -93,7 +111,7 @@ def test_hf_model_preserves_axion_logits_and_cache() -> None:
     token_ids = torch.tensor([[2, 3, 4, 5]])
     with torch.no_grad():
         expected_logits, _ = training_model(token_ids)
-        actual = hf_model(token_ids, use_cache=True)
+        actual = hf_model(token_ids)
         prefix = hf_model(token_ids[:, :3], use_cache=True)
         incremental = hf_model(
             token_ids[:, 3:],

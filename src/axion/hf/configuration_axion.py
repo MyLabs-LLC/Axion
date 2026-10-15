@@ -45,3 +45,6 @@ class AxionConfig(PretrainedConfig):
         self.hidden_act = hidden_act
         self.attention_bias = attention_bias
         self.mlp_bias = mlp_bias
+        # Transformers 5 no longer preserves arbitrary config kwargs as
+        # attributes, while the generation path reads this value directly.
+        self.use_cache = use_cache
