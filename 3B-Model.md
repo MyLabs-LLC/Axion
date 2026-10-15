@@ -4,6 +4,12 @@
 
 This document records a future scaling concept. It is not the active training target and must not interrupt or alter the current `macho-1b-finewebedu-20b` run.
 
+The updated design for **eight 12 GB GPUs connected across the internet** is
+[3B-8Node-WAN-Design.md](3B-8Node-WAN-Design.md). That design supersedes this
+document's heterogeneous hardware allocation, memory estimates, and throughput
+predictions for the new eight-node proposal. This original concept is retained
+for reference.
+
 ## Hardware Assumption
 
 The proposed eight-system subhalo contains one GPU per host:
