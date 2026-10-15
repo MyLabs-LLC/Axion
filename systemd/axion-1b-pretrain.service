@@ -7,11 +7,16 @@ After=network-online.target
 Type=simple
 WorkingDirectory=%h/MyLabs-LLC/Axion
 EnvironmentFile=-%h/.config/axion/axion.env
+Environment=AXION_MASTER_ADDR=192.168.77.232
 Environment=AXION_MASTER_PORT=29630
+Environment="AXION_IFACES=ens37 ens33 ens35"
+Environment="AXION_HOSTS=oblivion oblivion1 oblivion2"
+Environment=AXION_ROOT=%h/MyLabs-LLC/Axion
 Environment=AXION_NCCL_DEBUG=WARN
-ExecStart=%h/.local/bin/uv run scripts/run_week_training.py --config configs/axion_1b.yaml --run-name macho-1b-finewebedu-20b --run-kind macho-1b-32k --milestone 1b_pretrain --dataset-label FineWeb-Edu-sample-100BT --token-target 20000000000 --checkpoint-every 2000 --keep-checkpoints 2 --eval-every 1000 --val-batches 4 --monitor-seconds 60 --prepare-data --sync-data --resume-training
+ExecStart=%h/MyLabs-LLC/Axion/scripts/supervise_existing_training.sh --run-name macho-1b-finewebedu-20b --target-steps 305176 --metrics %h/MyLabs-LLC/Axion/runs/macho-1b-finewebedu-20b/metrics.jsonl -- %h/.local/bin/uv run scripts/run_week_training.py --config configs/axion_1b.yaml --run-name macho-1b-finewebedu-20b --run-kind macho-1b-32k --milestone 1b_pretrain --dataset-label FineWeb-Edu-sample-100BT --token-target 20000000000 --checkpoint-every 2000 --keep-checkpoints 2 --eval-every 1000 --val-batches 4 --monitor-seconds 60 --prepare-data --sync-data --resume-training
 Restart=on-failure
 RestartSec=60
+RestartPreventExitStatus=75
 TimeoutStopSec=120
 KillMode=control-group
 

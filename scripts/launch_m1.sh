@@ -21,11 +21,32 @@ CPU=${AXION_CPU:-0}
 COLLECT_RELICS=${AXION_COLLECT_RELICS:-1}
 NCCL_DEBUG_LEVEL=${AXION_NCCL_DEBUG:-WARN}
 pids=()
+RUN_LOCK_PATH=${AXION_RUN_LOCK:-$ROOT/runs/${RUN_NAME:-unnamed}/.launch.lock}
 
 if [[ ${#HOSTS[@]} -ne 3 ]]; then
   echo "AXION_HOSTS must contain exactly three hosts" >&2
   exit 2
 fi
+
+mkdir -p "$(dirname "$RUN_LOCK_PATH")"
+exec 9>"$RUN_LOCK_PATH"
+if ! flock -n 9; then
+  echo "an Axion launcher is already active for run ${RUN_NAME:-unnamed}" >&2
+  exit 75
+fi
+
+terminate_children() {
+  trap - INT TERM HUP
+  local pid
+  for pid in "${pids[@]}"; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  for pid in "${pids[@]}"; do
+    wait "$pid" 2>/dev/null || true
+  done
+  exit 143
+}
+trap terminate_children INT TERM HUP
 
 for rank in 0 1 2; do
   host=${HOSTS[$rank]}

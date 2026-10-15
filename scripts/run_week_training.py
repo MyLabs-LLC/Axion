@@ -28,6 +28,17 @@ def run_command(command: list[str], log_path: Path, env: dict[str, str] | None =
         return proc.wait()
 
 
+def terminate_process(proc: subprocess.Popen[str], timeout_seconds: float = 30.0) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
 def sync_data(hosts: list[str], root: Path, log_path: Path) -> int:
     commands: list[list[str]] = []
     for host in hosts[1:]:
@@ -317,10 +328,14 @@ def main() -> None:
                     time.sleep(args.monitor_seconds)
                 log_new_metrics(metrics_path, offset)
             finally:
+                terminate_process(proc)
                 launch_output.flush()
         mlflow.log_artifact(str(launch_log))
         if metrics_path.exists():
             mlflow.log_artifact(str(metrics_path))
+        if proc.returncode == 75:
+            mlflow.set_tag("axion.phase", "already_running")
+            return
         if proc.returncode != 0:
             raise RuntimeError(f"training failed with exit code {proc.returncode}")
 
