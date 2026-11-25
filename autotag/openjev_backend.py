@@ -10,8 +10,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from autotag.classify import DEFAULT_THRESHOLD, _classification, doc_type_hypotheses, doc_type_names
-from autotag.industry import industry_candidates, industry_hypothesis
+from autotag.classify import DEFAULT_THRESHOLD, _classification
+from autotag.labels import doc_type_hypotheses, doc_type_names, industry_hypotheses, industry_names
 
 PREFERRED_MODEL = "xxparthparekhxx/openjev-flash"
 FALLBACK_MODEL = "RazvanManolache/raz-systemone-nli-xsmall-openjev"
@@ -80,11 +80,11 @@ class OpenJevBackend:
         return scores
 
     def propose_industry(self, text: str, threshold: float = DEFAULT_THRESHOLD):
-        phrases = industry_candidates(text)
-        hypotheses = [industry_hypothesis(phrase) for phrase in phrases]
-        probabilities = self.entail(text, hypotheses)
-        scores = dict(zip(phrases, probabilities))
-        return _classification("industry", scores, threshold, self.name, {})
+        hypotheses = industry_hypotheses()
+        ordered = list(hypotheses)
+        probabilities = self.entail(text, [hypotheses[label_id] for label_id in ordered])
+        scores = dict(zip(ordered, probabilities))
+        return _classification("industry", scores, threshold, self.name, industry_names())
 
     def classify_doc_type(self, text: str, threshold: float = DEFAULT_THRESHOLD):
         hypotheses = doc_type_hypotheses()

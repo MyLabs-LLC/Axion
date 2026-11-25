@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from autotag.classify import DEFAULT_THRESHOLD
-from autotag.industry import INDUSTRY_HYPOTHESIS
+from autotag.labels import industry_questions
 from autotag.openjev_backend import FALLBACK_MODEL, PREFERRED_MODEL, OpenJevBackend
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -86,7 +86,7 @@ def run_accuracy(
         "dtype": backend.dtype,
         "threads": getattr(backend, "threads", None),
         "threshold": threshold,
-        "industry_hypothesis": INDUSTRY_HYPOTHESIS,
+        "industry_questions": industry_questions(),
         "score": "P(entailment) from the 3-way softmax, not renormalized across labels",
         "load_s": round(load_s, 4),
         "warmup_s": round(warmup_s, 4),

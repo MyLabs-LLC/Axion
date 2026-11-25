@@ -2,8 +2,8 @@
 
 Exploration branch for two labels on a document:
 
-- **Industry**, proposed by the model from phrases in the text. There is no
-  NAICS menu and no stored industry list.
+- **Industry**, one name from the sixteen industries in `labels.py`, or
+  `other` when the score is below the threshold.
 - **Document type**, one of ten: invoice, receipt, contract, policy, report,
   letter, email, memo, specification, financial_statement. One best label, or
   `other` when the score is below the threshold.
@@ -13,11 +13,10 @@ This branch does not change the trainer, `CLAUDE.md`, or `pyproject.toml`.
 The CPU model is `xxparthparekhxx/openjev-flash` (about 150M). If that
 checkpoint does not load, the accuracy command tries
 `RazvanManolache/raz-systemone-nli-xsmall-openjev` (71M). Both are entailment
-models: they score a hypothesis, they do not generate a new sentence. Industry
-candidates are spans copied from the document. The hypothesis is
-`The industry this document belongs to is {phrase}.` The score is
-P(entailment). It is not renormalized across phrases, so a weak best phrase
-can abstain.
+models: they score a hypothesis, they do not generate a new sentence. Each
+industry and each document type is one yes/no question. The model scores the
+statement form of that question (the answer yes). The score is P(entailment).
+It is not renormalized across labels, so a weak best label can abstain.
 
 ## Run the stub
 
@@ -50,8 +49,7 @@ with a large language model.
 
 | Path | Role |
 |---|---|
-| `labels.py` | The ten document types and their hypotheses |
-| `industry.py` | Phrases taken from the document |
+| `labels.py` | Sixteen industries and ten document types, one question each |
 | `classify.py` | Stub backend and the one-label-or-abstain rule |
 | `openjev_backend.py` | CPU OpenJev entailment |
 | `accuracy.py` | Fixture run, timing, and peak RSS |

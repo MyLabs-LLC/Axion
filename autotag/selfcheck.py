@@ -8,6 +8,7 @@ from pathlib import Path
 from autotag.agreement import accuracy, cohen_kappa
 from autotag.classify import StubBackend, classify_document
 from autotag.cluster import LexicalTfEmbedder, cluster_texts
+from autotag.labels import INDUSTRY_IDS
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 CLUSTER_IDS = ("hospital_invoice.txt", "discharge_summary.txt", "saas_agreement.txt")
@@ -25,10 +26,8 @@ def main() -> None:
         if result["doc_type"].label != expected:
             raise SystemExit(f"{path.name}: doc_type {result['doc_type'].label}, fixture intent {expected}")
         industry = result["industry"].label
-        if industry != "other" and industry.casefold() not in text.casefold():
-            raise SystemExit(f"{path.name}: industry {industry!r} is not a phrase from the document")
-        if industry in {"11", "51", "62", "31-33"}:
-            raise SystemExit(f"{path.name}: industry fell back to a NAICS code")
+        if industry != "other" and industry not in INDUSTRY_IDS:
+            raise SystemExit(f"{path.name}: industry {industry!r} is outside the closed list")
 
     items = [(name, texts[name]) for name in CLUSTER_IDS]
     clusters, _similarity = cluster_texts(items, LexicalTfEmbedder(), tagger, threshold=0.2)
@@ -40,6 +39,8 @@ def main() -> None:
     if grouped != {healthcare, software}:
         raise SystemExit(f"unexpected groups: {grouped}")
     healthcare_cluster = next(cluster for cluster in clusters if len(cluster.members) == 2)
+    if healthcare_cluster.suggested_industry != "healthcare":
+        raise SystemExit("hospital documents should share the healthcare label on the stub")
     if healthcare_cluster.suggested_doc_type is not None:
         raise SystemExit("mixed document types should not collapse to one cluster tag")
 

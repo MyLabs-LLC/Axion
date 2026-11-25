@@ -1,4 +1,4 @@
-"""Classify one document: open industry phrase, then one document type.
+"""Classify one document: one industry from the closed list, then one document type.
 
 The stub is deterministic and uses the standard library. The OpenJev backend
 lives in openjev_backend.py and is imported only when that backend is requested.
@@ -9,11 +9,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, Protocol
 
-from autotag.industry import industry_candidates
-from autotag.labels import ABSTAIN, DOC_TYPES
+from autotag.labels import ABSTAIN, DOC_TYPES, INDUSTRIES
 
-# Phrase lists for the document-type stub only. They are not shown to OpenJev.
+# Phrase lists for the stub only. They are not shown to OpenJev.
 _STUB_PHRASES: dict[str, tuple[str, ...]] = {
+    "healthcare": ("hospital", "patient", "medical", "diagnosis", "inpatient", "clinic", "clinics"),
+    "software": ("software", "saas", "hosted platform", "subscription"),
+    "finance": ("bank", "interest rate", "investment portfolio", "mortgage"),
+    "insurance": ("insurance", "premium", "insurance claim"),
+    "legal": ("law firm", "attorney", "legal services"),
+    "education": ("university", "tuition", "semester", "curriculum"),
+    "energy": ("electric utility", "kilowatt", "natural gas", "oil well"),
+    "manufacturing": ("factory", "assembly line", "manufacturing"),
+    "retail": ("retail store", "point of sale"),
+    "transportation": ("freight", "shipment", "passenger"),
+    "real_estate": ("real estate", "tenant", "lease"),
+    "construction": ("construction", "contractor", "building permit"),
+    "government": ("public administration", "federal agency", "municipal"),
+    "hospitality": ("restaurant", "hotel reservation"),
+    "telecommunications": ("broadband", "telephone service", "broadcasting"),
+    "agriculture": ("livestock", "harvest", "crop"),
     "invoice": ("invoice", "amount due", "bill to", "payment terms"),
     "receipt": ("receipt", "payment received", "paid in full"),
     "contract": ("agreement", "material breach", "terminate", "parties"),
@@ -34,7 +49,7 @@ class Tagger(Protocol):
     name: str
 
     def propose_industry(self, text: str, threshold: float) -> Classification:
-        """Industry phrase proposed for this text, or abstain."""
+        """One industry from the closed list, or abstain."""
 
     def classify_doc_type(self, text: str, threshold: float) -> Classification:
         """One of the ten document types, or abstain."""
@@ -127,19 +142,14 @@ def _classification(
 
 
 class StubBackend:
-    """Lexicon for document type, and a frequency pick among document phrases for industry."""
+    """Lexicon stand-in. Scores are phrase hits on the closed label ids."""
 
     name = "stub"
 
     def propose_industry(self, text: str, threshold: float = DEFAULT_THRESHOLD) -> Classification:
-        lowered = text.lower()
-        scores: dict[str, float] = {}
-        for phrase in industry_candidates(text):
-            occurrences = lowered.count(phrase.lower())
-            bonus = 3 if len(phrase.split()) > 1 else 0
-            raw = occurrences + bonus
-            scores[phrase] = min(0.93, 0.35 + 0.12 * raw) if raw else _FLOOR
-        return _classification("industry", scores, threshold, self.name, {})
+        scores = {label.id: _phrase_score(text, _STUB_PHRASES[label.id]) for label in INDUSTRIES}
+        names = {label.id: label.name for label in INDUSTRIES}
+        return _classification("industry", scores, threshold, self.name, names)
 
     def classify_doc_type(self, text: str, threshold: float = DEFAULT_THRESHOLD) -> Classification:
         scores = {label.id: _phrase_score(text, _STUB_PHRASES[label.id]) for label in DOC_TYPES}
@@ -160,9 +170,3 @@ def classify_document(
     }
 
 
-def doc_type_hypotheses() -> dict[str, str]:
-    return {label.id: label.hypothesis for label in DOC_TYPES}
-
-
-def doc_type_names() -> dict[str, str]:
-    return {label.id: label.name for label in DOC_TYPES}
