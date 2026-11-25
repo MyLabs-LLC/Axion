@@ -1,0 +1,6 @@
+DISCHARGE SUMMARY
+City General Hospital
+Patient admitted for community-acquired pneumonia.
+Diagnosis: community-acquired pneumonia.
+Hospital course: inpatient medical care, oxygen, antibiotics, and the patient improved.
+Disposition: discharged home with medical follow-up.

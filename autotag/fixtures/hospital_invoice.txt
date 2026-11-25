@@ -1,0 +1,8 @@
+INVOICE
+City General Hospital
+Bill to: Harbor Clinics
+Patient account 104428
+Patient admitted for community-acquired pneumonia.
+Description: inpatient medical care, oxygen, antibiotics, and a laboratory panel
+Amount due: 1840.00 USD
+Payment terms: due within 30 days

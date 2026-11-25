@@ -1,0 +1,5 @@
+MASTER SUBSCRIPTION AGREEMENT
+This software agreement is between Lumen Analytics and Helios Cloud.
+The vendor grants a nonexclusive SaaS subscription to the hosted platform.
+Term: 12 months. Fees are billed annually.
+Either party may terminate for material breach.
