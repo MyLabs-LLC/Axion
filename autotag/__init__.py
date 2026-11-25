@@ -1,7 +1,7 @@
-"""AutoTag: document industry and document-type exploration.
+"""AutoTag: open industry phrase plus a fixed document type.
 
-This package is not part of the Axion training milestones. It uses the
-standard library only. A real CPU model is swapped in behind Classifier.
+Not part of the Axion training milestones. The default path is the standard
+library. OpenJev weights load only when that backend is requested.
 """
 
 from autotag.classify import Classification, classify_document

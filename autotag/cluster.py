@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, Sequence
 
-from autotag.classify import Classification, Classifier, StubClassifier, classify_document
+from autotag.classify import Classification, StubBackend, Tagger, classify_document
 
 _STOPS = frozenset(
     """
@@ -159,13 +159,13 @@ def _agreed_label(values: list[str]) -> str | None:
 def cluster_texts(
     items: Sequence[tuple[str, str]],
     embedder: Embedder | None = None,
-    classifier: Classifier | None = None,
+    classifier: Tagger | None = None,
     threshold: float = 0.2,
-    classify_threshold: float = 0.45,
+    classify_threshold: float = 0.5,
 ) -> tuple[list[Cluster], list[list[float]]]:
     """Cluster `(doc_id, text)` pairs. Returns clusters and the cosine matrix."""
     model = embedder if embedder is not None else LexicalTfEmbedder()
-    tagger = classifier if classifier is not None else StubClassifier()
+    tagger = classifier if classifier is not None else StubBackend()
     ids = [doc_id for doc_id, _ in items]
     texts = [text for _, text in items]
     vectors = model.embed(texts)
@@ -196,7 +196,7 @@ def cluster_texts(
 def cluster_paths(
     paths: Sequence[Path],
     embedder: Embedder | None = None,
-    classifier: Classifier | None = None,
+    classifier: Tagger | None = None,
     threshold: float = 0.2,
 ) -> tuple[list[Cluster], list[str], list[list[float]]]:
     items = [(path.name, path.read_text(encoding="utf-8")) for path in paths]

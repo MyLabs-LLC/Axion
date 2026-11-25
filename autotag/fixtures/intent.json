@@ -1,0 +1,13 @@
+{
+  "hospital_invoice.txt": "invoice",
+  "discharge_summary.txt": "report",
+  "saas_agreement.txt": "contract",
+  "payment_receipt.txt": "receipt",
+  "privacy_policy.txt": "policy",
+  "customer_letter.txt": "letter",
+  "status_email.txt": "email",
+  "team_memo.txt": "memo",
+  "api_specification.txt": "specification",
+  "income_statement.txt": "financial_statement",
+  "kitchen_note.txt": "other"
+}

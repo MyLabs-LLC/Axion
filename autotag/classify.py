@@ -1,44 +1,19 @@
-"""Zero-shot industry and document-type classification.
+"""Classify one document: open industry phrase, then one document type.
 
-`Classifier.score` is the Jev `noul` contract: each label is an independent
-P(yes), not a softmax. `StubClassifier` is a deterministic lexicon so the
-pipeline runs with no model download. `JevClient` posts the same questions to
-a local jevos server (`POST /v1/systemone`) and does not import a new package.
+The stub is deterministic and uses the standard library. The OpenJev backend
+lives in openjev_backend.py and is imported only when that backend is requested.
 """
 
 from __future__ import annotations
 
-import json
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from typing import Mapping, Protocol
 
-from autotag.labels import ABSTAIN, labels_for, questions_for
+from autotag.industry import industry_candidates
+from autotag.labels import ABSTAIN, DOC_TYPES
 
-# Phrase lists for the stub only. They are not shown to a real model.
-# A label missing from this map scores the floor, then abstains.
+# Phrase lists for the document-type stub only. They are not shown to OpenJev.
 _STUB_PHRASES: dict[str, tuple[str, ...]] = {
-    "11": ("crop", "livestock", "harvest", "farm"),
-    "21": ("oil well", "natural gas", "mining", "quarry"),
-    "22": ("electric utility", "water utility", "kilowatt"),
-    "23": ("construction", "contractor", "building permit"),
-    "31-33": ("manufacturing", "factory", "assembly line"),
-    "42": ("wholesale", "distributor"),
-    "44-45": ("retail", "point of sale", "store receipt"),
-    "48-49": ("freight", "warehouse", "shipment", "bill of lading"),
-    "51": ("software", "saas", "hosted platform", "subscription"),
-    "52": ("insurance policy", "interest rate", "underwriting", "loan agreement"),
-    "53": ("real estate", "lease agreement", "tenant"),
-    "54": ("law firm", "attorney", "accounting firm"),
-    "55": ("holding company", "subsidiary management"),
-    "56": ("staffing agency", "waste management"),
-    "61": ("university", "curriculum", "tuition", "semester"),
-    "62": ("hospital", "patient", "medical", "diagnosis", "inpatient"),
-    "71": ("box office", "museum", "recreation"),
-    "72": ("restaurant", "hotel reservation", "menu"),
-    "81": ("dry cleaning", "auto repair", "membership dues"),
-    "92": ("public administration", "municipal ordinance", "federal agency"),
     "invoice": ("invoice", "amount due", "bill to", "payment terms"),
     "receipt": ("receipt", "payment received", "paid in full"),
     "contract": ("agreement", "material breach", "terminate", "parties"),
@@ -52,15 +27,17 @@ _STUB_PHRASES: dict[str, tuple[str, ...]] = {
 }
 
 _FLOOR = 0.02
-_DEFAULT_THRESHOLD = 0.45
-_DEFAULT_ENDPOINT = "http://127.0.0.1:8017/v1/systemone"
+DEFAULT_THRESHOLD = 0.5
 
 
-class Classifier(Protocol):
+class Tagger(Protocol):
     name: str
 
-    def score(self, text: str, questions: Mapping[str, str]) -> dict[str, float]:
-        """Return P(yes) for every question id."""
+    def propose_industry(self, text: str, threshold: float) -> Classification:
+        """Industry phrase proposed for this text, or abstain."""
+
+    def classify_doc_type(self, text: str, threshold: float) -> Classification:
+        """One of the ten document types, or abstain."""
 
 
 @dataclass(frozen=True)
@@ -88,7 +65,7 @@ class Classification:
 def _split_words(text: str) -> list[str]:
     words: list[str] = []
     current: list[str] = []
-    for char in text:
+    for char in text.lower():
         if char.isalnum():
             current.append(char)
         elif current:
@@ -100,9 +77,8 @@ def _split_words(text: str) -> list[str]:
 
 
 def _contains_phrase(text: str, phrase: str) -> bool:
-    """True when `phrase` occurs as whole tokens, in order."""
-    haystack = _split_words(text.lower())
-    needle = _split_words(phrase.lower())
+    haystack = _split_words(text)
+    needle = _split_words(phrase)
     if not needle:
         return False
     width = len(needle)
@@ -116,143 +92,77 @@ def _phrase_score(text: str, phrases: tuple[str, ...]) -> float:
     return min(0.93, 0.35 + 0.20 * hits)
 
 
-class StubClassifier:
-    """Deterministic stand-in for a CPU zero-shot model.
-
-    Scores are a function of phrase hits only. The same text and questions
-    always produce the same probabilities. This is not a calibrated model.
-    """
-
-    name = "stub"
-
-    def score(self, text: str, questions: Mapping[str, str]) -> dict[str, float]:
-        scores: dict[str, float] = {}
-        for label_id in questions:
-            phrases = _STUB_PHRASES.get(label_id, ())
-            scores[label_id] = _phrase_score(text, phrases) if phrases else _FLOOR
-        return scores
-
-
-class JevClient:
-    """Talk to a local jevos (or TypeSafe-compatible) server.
-
-    No extra Python dependency. Start the server with the jevos binary, then
-    pass ``--backend jev``. See autotag/README.md.
-    """
-
-    name = "jev"
-
-    def __init__(self, endpoint: str = _DEFAULT_ENDPOINT, timeout_s: float = 30.0) -> None:
-        self.endpoint = endpoint
-        self.timeout_s = timeout_s
-
-    def score(self, text: str, questions: Mapping[str, str]) -> dict[str, float]:
-        body = {
-            "model": "jev-latest",
-            "state": text,
-            "questions": {
-                label_id: {"type": "noul", "instructions": instruction}
-                for label_id, instruction in questions.items()
-            },
-        }
-        payload = json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(
-            self.endpoint,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
-                raw = response.read().decode("utf-8")
-        except urllib.error.URLError as exc:
-            raise ConnectionError(
-                f"Could not reach a JEV server at {self.endpoint}. "
-                "The default backend is the deterministic stub. "
-                "To use the real CPU model, run jevos (`./jev serve`) and retry with --backend jev. "
-                f"Underlying error: {exc}"
-            ) from exc
-        parsed = json.loads(raw)
-        answers = parsed.get("answers")
-        if not isinstance(answers, dict):
-            raise RuntimeError("JEV response did not contain an answers object.")
-        scores: dict[str, float] = {}
-        for label_id in questions:
-            entry = answers.get(label_id)
-            if not isinstance(entry, dict) or "noul" not in entry:
-                raise RuntimeError(f"JEV response is missing noul for {label_id!r}.")
-            scores[label_id] = float(entry["noul"])
-        return scores
-
-
-def get_classifier(backend: str, endpoint: str = _DEFAULT_ENDPOINT) -> Classifier:
-    if backend == "stub":
-        return StubClassifier()
-    if backend == "jev":
-        return JevClient(endpoint=endpoint)
-    raise ValueError(f"Unknown backend {backend!r}. Expected 'stub' or 'jev'.")
-
-
-def _pick(scores: Mapping[str, float], threshold: float) -> tuple[str, float, bool]:
+def pick_label(scores: Mapping[str, float], threshold: float) -> tuple[str, float, bool]:
+    """Highest score wins. Ties break by label text. Below threshold abstains."""
     if not scores:
         return ABSTAIN, 0.0, True
-    # Stable tie break: higher score, then label id.
     label = max(scores, key=lambda key: (scores[key], key))
-    score = scores[label]
+    score = float(scores[label])
     if score < threshold:
         return ABSTAIN, score, True
     return label, score, False
 
 
-def _from_scores(
-    backend: str,
+def _classification(
     axis: str,
     scores: Mapping[str, float],
     threshold: float,
+    backend: str,
+    names: Mapping[str, str],
 ) -> Classification:
-    axis_ids = [label.id for label in labels_for(axis)]
-    missing = [label_id for label_id in axis_ids if label_id not in scores]
-    if missing:
-        joined = ", ".join(missing)
-        raise RuntimeError(f"Missing scores for {axis}: {joined}")
-    axis_scores = {label_id: float(scores[label_id]) for label_id in axis_ids}
-    label, score, abstained = _pick(axis_scores, threshold)
-    name = "Other" if abstained else next(item.name for item in labels_for(axis) if item.id == label)
+    label, score, abstained = pick_label(scores, threshold)
+    if abstained:
+        name = "Other"
+    else:
+        name = names.get(label, label)
     return Classification(
         axis=axis,
         label=label,
         label_name=name,
         score=score,
         abstained=abstained,
-        scores=axis_scores,
+        scores=dict(scores),
         backend=backend,
     )
 
 
-def classify_axis(
-    classifier: Classifier,
-    text: str,
-    axis: str,
-    threshold: float = _DEFAULT_THRESHOLD,
-) -> Classification:
-    scores = classifier.score(text, questions_for(axis))
-    return _from_scores(classifier.name, axis, scores, threshold)
+class StubBackend:
+    """Lexicon for document type, and a frequency pick among document phrases for industry."""
+
+    name = "stub"
+
+    def propose_industry(self, text: str, threshold: float = DEFAULT_THRESHOLD) -> Classification:
+        lowered = text.lower()
+        scores: dict[str, float] = {}
+        for phrase in industry_candidates(text):
+            occurrences = lowered.count(phrase.lower())
+            bonus = 3 if len(phrase.split()) > 1 else 0
+            raw = occurrences + bonus
+            scores[phrase] = min(0.93, 0.35 + 0.12 * raw) if raw else _FLOOR
+        return _classification("industry", scores, threshold, self.name, {})
+
+    def classify_doc_type(self, text: str, threshold: float = DEFAULT_THRESHOLD) -> Classification:
+        scores = {label.id: _phrase_score(text, _STUB_PHRASES[label.id]) for label in DOC_TYPES}
+        names = {label.id: label.name for label in DOC_TYPES}
+        return _classification("doc_type", scores, threshold, self.name, names)
 
 
 def classify_document(
     text: str,
-    classifier: Classifier | None = None,
-    threshold: float = _DEFAULT_THRESHOLD,
+    tagger: Tagger | None = None,
+    threshold: float = DEFAULT_THRESHOLD,
 ) -> dict[str, Classification]:
-    """Classify one document on both axes in a single `score` call.
-
-    One call matches jevos: every question about a text is one request, and
-    the text is read once. Industry ids and document-type ids do not overlap.
-    """
-    model = classifier if classifier is not None else StubClassifier()
-    questions = questions_for("industry") | questions_for("doc_type")
-    scores = model.score(text, questions)
+    """Industry first, then document type. One label per axis, or abstain."""
+    model = tagger if tagger is not None else StubBackend()
     return {
-        "industry": _from_scores(model.name, "industry", scores, threshold),
-        "doc_type": _from_scores(model.name, "doc_type", scores, threshold),
+        "industry": model.propose_industry(text, threshold),
+        "doc_type": model.classify_doc_type(text, threshold),
     }
+
+
+def doc_type_hypotheses() -> dict[str, str]:
+    return {label.id: label.hypothesis for label in DOC_TYPES}
+
+
+def doc_type_names() -> dict[str, str]:
+    return {label.id: label.name for label in DOC_TYPES}

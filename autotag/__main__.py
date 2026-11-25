@@ -5,6 +5,7 @@ From the repository root:
     python -m autotag classify autotag/fixtures/hospital_invoice.txt
     python -m autotag cluster autotag/fixtures
     python -m autotag.selfcheck
+    python -m autotag accuracy
 """
 
 from __future__ import annotations
@@ -14,23 +15,34 @@ import json
 import sys
 from pathlib import Path
 
-from autotag.classify import classify_document, get_classifier
+from autotag.classify import DEFAULT_THRESHOLD, StubBackend, Tagger, classify_document
 from autotag.cluster import LexicalTfEmbedder, cluster_paths
 
 
-def _print_classification(path: Path, text: str, backend: str, endpoint: str, threshold: float, as_json: bool) -> int:
-    classifier = get_classifier(backend, endpoint)
-    result = classify_document(text, classifier, threshold)
+def _tagger(backend: str, model_id: str | None) -> Tagger:
+    if backend == "stub":
+        return StubBackend()
+    if backend == "openjev":
+        from autotag.openjev_backend import OpenJevBackend
+
+        model = OpenJevBackend(model_id) if model_id else OpenJevBackend()
+        model.load()
+        return model
+    raise ValueError(f"Unknown backend {backend!r}. Expected 'stub' or 'openjev'.")
+
+
+def _print_classification(path: Path, text: str, tagger: Tagger, threshold: float, as_json: bool) -> int:
+    result = classify_document(text, tagger, threshold)
     if as_json:
         payload = {
             "path": str(path),
-            "backend": classifier.name,
+            "backend": tagger.name,
             "industry": result["industry"].to_dict(),
             "doc_type": result["doc_type"].to_dict(),
         }
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
-    print(f"backend: {classifier.name}")
+    print(f"backend: {tagger.name}")
     print(f"file: {path}")
     for axis in ("industry", "doc_type"):
         item = result[axis]
@@ -51,8 +63,9 @@ def _cmd_classify(args: argparse.Namespace) -> int:
         return 2
     text = path.read_text(encoding="utf-8")
     try:
-        return _print_classification(path, text, args.backend, args.endpoint, args.threshold, args.json)
-    except (ConnectionError, RuntimeError, ValueError) as exc:
+        tagger = _tagger(args.backend, args.model)
+        return _print_classification(path, text, tagger, args.threshold, args.json)
+    except (RuntimeError, ValueError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 3
 
@@ -67,20 +80,20 @@ def _cmd_cluster(args: argparse.Namespace) -> int:
         print("Need at least two .txt documents to cluster.", file=sys.stderr)
         return 2
     try:
-        classifier = get_classifier(args.backend, args.endpoint)
+        tagger = _tagger(args.backend, args.model)
         embedder = LexicalTfEmbedder()
         clusters, doc_ids, similarity = cluster_paths(
             paths,
             embedder=embedder,
-            classifier=classifier,
+            classifier=tagger,
             threshold=args.similarity,
         )
-    except (ConnectionError, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 3
     if args.json:
         payload = {
-            "backend": classifier.name,
+            "backend": tagger.name,
             "embedder": embedder.name,
             "similarity_threshold": args.similarity,
             "doc_ids": doc_ids,
@@ -89,7 +102,7 @@ def _cmd_cluster(args: argparse.Namespace) -> int:
         }
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
-    print(f"backend: {classifier.name}")
+    print(f"backend: {tagger.name}")
     print(f"embedder: {embedder.name}")
     print("similarity:")
     for i, left in enumerate(doc_ids):
@@ -114,25 +127,43 @@ def _cmd_cluster(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_accuracy(args: argparse.Namespace) -> int:
+    from autotag.accuracy import format_report, run_accuracy
+
+    try:
+        payload = run_accuracy(Path(args.output), args.threshold)
+    except (RuntimeError, OSError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 3
+    print(format_report(payload))
+    print(f"wrote {args.output}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="autotag", description="Classify and cluster a few plain-text documents.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     classify = sub.add_parser("classify", help="Classify one UTF-8 text file.")
     classify.add_argument("path")
-    classify.add_argument("--backend", choices=("stub", "jev"), default="stub")
-    classify.add_argument("--endpoint", default="http://127.0.0.1:8017/v1/systemone")
-    classify.add_argument("--threshold", type=float, default=0.45)
+    classify.add_argument("--backend", choices=("stub", "openjev"), default="stub")
+    classify.add_argument("--model", default=None, help="Hugging Face model id for --backend openjev.")
+    classify.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     classify.add_argument("--json", action="store_true")
     classify.set_defaults(func=_cmd_classify)
 
     cluster = sub.add_parser("cluster", help="Cluster every .txt file in a directory.")
     cluster.add_argument("directory")
-    cluster.add_argument("--backend", choices=("stub", "jev"), default="stub")
-    cluster.add_argument("--endpoint", default="http://127.0.0.1:8017/v1/systemone")
+    cluster.add_argument("--backend", choices=("stub", "openjev"), default="stub")
+    cluster.add_argument("--model", default=None)
     cluster.add_argument("--similarity", type=float, default=0.2, help="Average-linkage merge threshold.")
     cluster.add_argument("--json", action="store_true")
     cluster.set_defaults(func=_cmd_cluster)
+
+    accuracy = sub.add_parser("accuracy", help="Run OpenJev on CPU over autotag/fixtures.")
+    accuracy.add_argument("--output", default="autotag/measurements/cpu-accuracy.json")
+    accuracy.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
+    accuracy.set_defaults(func=_cmd_accuracy)
     return parser
 
 

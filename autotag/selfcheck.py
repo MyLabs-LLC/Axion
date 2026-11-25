@@ -1,36 +1,37 @@
-"""Smoke checks for the fixture pipeline. Not a claim about model accuracy."""
+"""Smoke checks for the stub pipeline. Not a claim about OpenJev accuracy."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from autotag.agreement import accuracy, cohen_kappa
-from autotag.classify import StubClassifier, classify_document
+from autotag.classify import StubBackend, classify_document
 from autotag.cluster import LexicalTfEmbedder, cluster_texts
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-
-EXPECTED = {
-    "hospital_invoice.txt": ("62", "invoice"),
-    "discharge_summary.txt": ("62", "report"),
-    "saas_agreement.txt": ("51", "contract"),
-}
+CLUSTER_IDS = ("hospital_invoice.txt", "discharge_summary.txt", "saas_agreement.txt")
 
 
 def main() -> None:
-    classifier = StubClassifier()
-    items: list[tuple[str, str]] = []
-    for name, (industry, doc_type) in EXPECTED.items():
-        text = (FIXTURES / name).read_text(encoding="utf-8")
-        result = classify_document(text, classifier)
-        got = (result["industry"].label, result["doc_type"].label)
-        if got != (industry, doc_type):
-            raise SystemExit(f"{name}: expected {(industry, doc_type)}, got {got}")
-        if result["industry"].abstained or result["doc_type"].abstained:
-            raise SystemExit(f"{name}: unexpected abstention")
-        items.append((name, text))
+    tagger = StubBackend()
+    intent = json.loads((FIXTURES / "intent.json").read_text(encoding="utf-8"))
+    texts: dict[str, str] = {}
+    for path in sorted(FIXTURES.glob("*.txt")):
+        text = path.read_text(encoding="utf-8")
+        texts[path.name] = text
+        expected = intent[path.name]
+        result = classify_document(text, tagger)
+        if result["doc_type"].label != expected:
+            raise SystemExit(f"{path.name}: doc_type {result['doc_type'].label}, fixture intent {expected}")
+        industry = result["industry"].label
+        if industry != "other" and industry.casefold() not in text.casefold():
+            raise SystemExit(f"{path.name}: industry {industry!r} is not a phrase from the document")
+        if industry in {"11", "51", "62", "31-33"}:
+            raise SystemExit(f"{path.name}: industry fell back to a NAICS code")
 
-    clusters, _similarity = cluster_texts(items, LexicalTfEmbedder(), classifier, threshold=0.2)
+    items = [(name, texts[name]) for name in CLUSTER_IDS]
+    clusters, _similarity = cluster_texts(items, LexicalTfEmbedder(), tagger, threshold=0.2)
     if len(clusters) != 2:
         raise SystemExit(f"expected 2 clusters, got {len(clusters)}")
     grouped = {frozenset(member.doc_id for member in cluster.members) for cluster in clusters}
@@ -39,16 +40,14 @@ def main() -> None:
     if grouped != {healthcare, software}:
         raise SystemExit(f"unexpected groups: {grouped}")
     healthcare_cluster = next(cluster for cluster in clusters if len(cluster.members) == 2)
-    if healthcare_cluster.suggested_industry != "62":
-        raise SystemExit("healthcare cluster should agree on industry 62")
     if healthcare_cluster.suggested_doc_type is not None:
         raise SystemExit("mixed document types should not collapse to one cluster tag")
 
-    perfect_left = ["62", "62", "51"]
-    perfect_right = ["62", "62", "51"]
-    if accuracy(perfect_left, perfect_right) != 1.0 or cohen_kappa(perfect_left, perfect_right) != 1.0:
-        raise SystemExit("agreement helpers failed on identical labels")
-    partial = cohen_kappa(["62", "62", "51"], ["62", "51", "51"])
+    if accuracy(["invoice", "report"], ["invoice", "report"]) != 1.0:
+        raise SystemExit("accuracy helper failed")
+    if cohen_kappa(["invoice", "report", "contract"], ["invoice", "report", "contract"]) != 1.0:
+        raise SystemExit("kappa helper failed on identical labels")
+    partial = cohen_kappa(["invoice", "report", "contract"], ["invoice", "contract", "contract"])
     if not -1.0 <= partial < 1.0:
         raise SystemExit(f"kappa out of range: {partial}")
     print("autotag selfcheck ok")

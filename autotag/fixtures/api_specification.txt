@@ -1,0 +1,3 @@
+SPECIFICATION
+Functional requirement: the portal shall accept a patient account number
+and return the billing status for City General Hospital.
